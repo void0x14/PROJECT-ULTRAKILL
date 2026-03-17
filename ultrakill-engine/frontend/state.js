@@ -6,9 +6,19 @@ function createStore(initialState) {
         set(target, property, value) {
             target[property] = value;
             if (subscribers.has(property)) {
-                subscribers.get(property).forEach(callback => callback(value));
+                const cbs = subscribers.get(property);
+                for (let i = 0; i < cbs.length; i++) {
+                    try {
+                        cbs[i](value);
+                    } catch (e) {
+                        console.error(`[state] subscriber error for '${property}':`, e);
+                    }
+                }
             }
             return true;
+        },
+        get(target, property) {
+            return target[property];
         }
     };
     return new Proxy(initialState, handler);
@@ -16,11 +26,12 @@ function createStore(initialState) {
 
 export const state = createStore({
     blood: { current: 100, max: 100 },
-    activeLayer: 'limbo',
+    activeLayer: "prelude",
+    layers: [],
     tasks: [],
-    styleRank: 'D',
+    styleRank: "D",
     grindActive: false,
-    grindSeed: null
+    grindSeed: null,
 });
 
 export function subscribe(key, callback) {
@@ -28,4 +39,18 @@ export function subscribe(key, callback) {
         subscribers.set(key, []);
     }
     subscribers.get(key).push(callback);
+}
+
+export function notify(key) {
+    if (subscribers.has(key)) {
+        const val = state[key];
+        const cbs = subscribers.get(key);
+        for (let i = 0; i < cbs.length; i++) {
+            try {
+                cbs[i](val);
+            } catch (e) {
+                console.error(`[state] notify error for '${key}':`, e);
+            }
+        }
+    }
 }

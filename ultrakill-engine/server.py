@@ -1,189 +1,361 @@
 # === DOSYA: server.py ===
 import http.server
-import socketserver
 import sqlite3
 import json
 import os
 import random
 import datetime
-import urllib.request
 
-DB_FILE = "db.sqlite"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(SCRIPT_DIR, "db.sqlite")
+
+MIME_TYPES = {
+    ".html": "text/html",
+    ".css": "text/css",
+    ".js": "application/javascript",
+    ".json": "application/json",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+}
+
+LAYERS_SEED = [
+    ("prelude", "Prelude", "Prelude", 0, 1, 0),
+    ("limbo", "Limbo", "Act I", 1, 1, 0),
+    ("lust", "Lust", "Act I", 2, 0, 0),
+    ("gluttony", "Gluttony", "Act I", 3, 0, 0),
+    ("greed", "Greed", "Act I", 4, 0, 0),
+    ("wrath", "Wrath", "Act I", 5, 0, 0),
+    ("gabriel", "Gabriel, Judge of Hell", "Boss", 6, 0, 0),
+    ("heresy", "Heresy", "Act II", 7, 0, 0),
+    ("violence", "Violence", "Act II", 8, 0, 0),
+    ("fraud", "Fraud", "Act II", 9, 0, 0),
+    ("treachery", "Treachery", "Act II", 10, 0, 0),
+    ("minos_prime", "Minos Prime", "Boss", 11, 0, 0),
+    ("sisyphus_prime", "Sisyphus Prime", "Secret Boss", 12, 0, 0),
+]
+
+
+def generate_id():
+    return f"{random.randint(0, 2**64):016x}"
+
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS layers
-                 (id TEXT PRIMARY KEY, name TEXT, act TEXT, order_idx INTEGER, unlocked INTEGER, completed INTEGER)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS tasks
-                 (id TEXT PRIMARY KEY, layer_id TEXT, title TEXT, blood_reward INTEGER, deadline_seconds INTEGER, status TEXT, style_rank TEXT, dom_order INTEGER)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS blood_state
-                 (id INTEGER PRIMARY KEY CHECK (id = 1), current_blood INTEGER, max_blood INTEGER, last_updated TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS cyber_grind_state
-                 (id INTEGER PRIMARY KEY CHECK (id = 1), active INTEGER, shuffle_seed REAL, activated_at TEXT)''')
-    
-    # Initialize defaults if empty
+    c.execute("""CREATE TABLE IF NOT EXISTS layers(
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        act TEXT NOT NULL,
+        order_idx INTEGER NOT NULL,
+        unlocked INTEGER NOT NULL DEFAULT 0,
+        completed INTEGER NOT NULL DEFAULT 0
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS tasks(
+        id TEXT PRIMARY KEY,
+        layer_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        blood_reward INTEGER NOT NULL DEFAULT 10,
+        deadline_seconds INTEGER NOT NULL DEFAULT 300,
+        status TEXT NOT NULL DEFAULT 'pending',
+        style_rank TEXT,
+        dom_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT,
+        FOREIGN KEY (layer_id) REFERENCES layers(id)
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS blood_state(
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        current_blood INTEGER NOT NULL DEFAULT 100,
+        max_blood INTEGER NOT NULL DEFAULT 100,
+        last_updated TEXT
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS cyber_grind_state(
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        active INTEGER NOT NULL DEFAULT 0,
+        shuffle_seed REAL NOT NULL DEFAULT 0.0,
+        activated_at TEXT
+    )""")
+
     c.execute("SELECT COUNT(*) FROM layers")
     if c.fetchone()[0] == 0:
-        layers = [
-            ("prelude", "Prelude", "Prelude", 0, 1, 0),
-            ("limbo", "Limbo", "Act I", 1, 0, 0),
-            ("lust", "Lust", "Act I", 2, 0, 0),
-            ("gluttony", "Gluttony", "Act I", 3, 0, 0),
-            ("greed", "Greed", "Act I", 4, 0, 0),
-            ("wrath", "Wrath", "Act I", 5, 0, 0),
-            ("heresy", "Heresy", "Act II", 6, 0, 0),
-            ("violence", "Violence", "Act II", 7, 0, 0),
-            ("fraud", "Fraud", "Act II", 8, 0, 0),
-            ("treachery", "Treachery", "Act II", 9, 0, 0)
-        ]
-        c.executemany("INSERT INTO layers VALUES (?, ?, ?, ?, ?, ?)", layers)
-    
+        c.executemany("INSERT INTO layers VALUES (?,?,?,?,?,?)", LAYERS_SEED)
+
     c.execute("SELECT COUNT(*) FROM blood_state")
     if c.fetchone()[0] == 0:
-        c.execute("INSERT INTO blood_state VALUES (1, 100, 100, ?)", (datetime.datetime.now().isoformat(),))
-        
+        c.execute("INSERT INTO blood_state VALUES (1, 100, 100, ?)",
+                  (datetime.datetime.now().isoformat(),))
+
     c.execute("SELECT COUNT(*) FROM cyber_grind_state")
     if c.fetchone()[0] == 0:
-        c.execute("INSERT INTO cyber_grind_state VALUES (1, 0, 0.0, ?)", (datetime.datetime.now().isoformat(),))
-        
+        c.execute("INSERT INTO cyber_grind_state VALUES (1, 0, 0.0, ?)",
+                  (datetime.datetime.now().isoformat(),))
+
     conn.commit()
     conn.close()
 
+
 def calculate_style_rank(completion_time_ms, deadline_seconds):
     deadline_ms = deadline_seconds * 1000
-    if completion_time_ms < deadline_ms * 0.3: return "SSS"
-    if completion_time_ms < deadline_ms * 0.5: return "SS"
-    if completion_time_ms < deadline_ms * 0.7: return "S"
-    if completion_time_ms < deadline_ms * 0.9: return "A"
-    if completion_time_ms <= deadline_ms * 1.0: return "B"
+    if completion_time_ms < deadline_ms * 0.3:
+        return "SSS"
+    if completion_time_ms < deadline_ms * 0.5:
+        return "SS"
+    if completion_time_ms < deadline_ms * 0.7:
+        return "S"
+    if completion_time_ms < deadline_ms * 0.9:
+        return "A"
+    if completion_time_ms <= deadline_ms:
+        return "B"
     return "C"
 
-class ReqHandler(http.server.SimpleHTTPRequestHandler):
-    def _send_json(self, status_code, data):
-        self.send_response(status_code)
-        self.send_header('Content-type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps(data).encode('utf-8'))
 
-    def _get_body(self):
-        content_length = int(self.headers.get('Content-Length', 0))
-        if content_length == 0:
+RANK_MULTIPLIERS = {
+    "SSS": 3.0, "SS": 2.5, "S": 2.0,
+    "A": 1.5, "B": 1.0, "C": 0.5, "D": 0.0,
+}
+
+
+def get_db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+class UltrakillHandler(http.server.BaseHTTPRequestHandler):
+
+    def _cors_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def _send_json(self, status_code, data):
+        body = json.dumps(data).encode("utf-8")
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self._cors_headers()
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_body(self):
+        length = int(self.headers.get("Content-Length", 0))
+        if length == 0:
             return {}
-        body = self.rfile.read(content_length)
-        return json.loads(body.decode('utf-8'))
+        raw = self.rfile.read(length)
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except Exception:
+            return {}
+
+    def _serve_static(self, rel_path):
+        safe = os.path.normpath(rel_path).lstrip("/")
+        file_path = os.path.join(SCRIPT_DIR, safe)
+        if not os.path.isfile(file_path):
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(b"Not Found")
+            return
+        ext = os.path.splitext(file_path)[1].lower()
+        mime = MIME_TYPES.get(ext, "application/octet-stream")
+        try:
+            with open(file_path, "rb") as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", mime)
+            self.send_header("Content-Length", str(len(content)))
+            self._cors_headers()
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(str(e).encode())
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._cors_headers()
+        self.end_headers()
 
     def do_GET(self):
-        if self.path == '/':
-            self.path = '/frontend/index.html'
-            return super().do_GET()
-        elif self.path.startswith('/frontend/'):
-            return super().do_GET()
-        elif self.path == '/api/state':
+        path = self.path.split("?")[0]
+
+        if path == "/":
+            self._serve_static("frontend/index.html")
+
+        elif path.startswith("/frontend/"):
+            self._serve_static(path[1:])
+
+        elif path == "/api/state":
             try:
-                conn = sqlite3.connect(DB_FILE)
+                conn = get_db()
                 c = conn.cursor()
                 c.execute("SELECT current_blood, max_blood FROM blood_state WHERE id=1")
-                blood = c.fetchone()
-                c.execute("SELECT id, name, act, unlocked, completed FROM layers")
-                layers = [{"id": r[0], "name": r[1], "act": r[2], "unlocked": bool(r[3]), "completed": bool(r[4])} for r in c.fetchall()]
-                c.execute("SELECT id, layer_id, title, blood_reward, deadline_seconds, status, style_rank FROM tasks")
-                tasks = [{"id": r[0], "layer_id": r[1], "title": r[2], "blood_reward": r[3], "deadline_seconds": r[4], "status": r[5], "style_rank": r[6]} for r in c.fetchall()]
+                b = c.fetchone()
+                c.execute("SELECT id, name, act, order_idx, unlocked, completed FROM layers ORDER BY order_idx")
+                layers = [dict(r) for r in c.fetchall()]
+                for l in layers:
+                    l["unlocked"] = bool(l["unlocked"])
+                    l["completed"] = bool(l["completed"])
+                c.execute("SELECT id, layer_id, title, blood_reward, deadline_seconds, status, style_rank, dom_order FROM tasks")
+                tasks = [dict(r) for r in c.fetchall()]
+                c.execute("SELECT active, shuffle_seed FROM cyber_grind_state WHERE id=1")
+                g = c.fetchone()
                 conn.close()
                 self._send_json(200, {
-                    "blood": {"current": blood[0], "max": blood[1]},
+                    "blood": {"current": b["current_blood"], "max": b["max_blood"]},
                     "layers": layers,
-                    "tasks": tasks
+                    "tasks": tasks,
+                    "grind": {"active": bool(g["active"]), "shuffle_seed": g["shuffle_seed"]},
                 })
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
-        elif self.path == '/api/grind/state':
+
+        elif path == "/api/grind/state":
             try:
-                conn = sqlite3.connect(DB_FILE)
+                conn = get_db()
                 c = conn.cursor()
                 c.execute("SELECT active, shuffle_seed FROM cyber_grind_state WHERE id=1")
-                grind = c.fetchone()
+                g = c.fetchone()
                 conn.close()
-                self._send_json(200, {"active": bool(grind[0]), "shuffle_seed": grind[1]})
+                self._send_json(200, {"active": bool(g["active"]), "shuffle_seed": g["shuffle_seed"]})
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
+
         else:
             self.send_response(404)
             self.end_headers()
 
     def do_POST(self):
-        try:
-            if self.path == '/api/task/complete':
-                body = self._get_body()
-                task_id = body.get('task_id')
-                completion_time_ms = body.get('completion_time_ms', 0)
-                
-                conn = sqlite3.connect(DB_FILE)
-                c = conn.cursor()
-                c.execute("SELECT blood_reward, deadline_seconds FROM tasks WHERE id=?", (task_id,))
-                task = c.fetchone()
-                if not task:
-                    self._send_json(404, {"error": "Task not found"})
-                    return
-                
-                rank = calculate_style_rank(completion_time_ms, task[1])
-                multiplier = {"SSS": 3.0, "SS": 2.5, "S": 2.0, "A": 1.5, "B": 1.0, "C": 0.5}.get(rank, 1.0)
-                reward = int(task[0] * multiplier)
-                
-                c.execute("UPDATE tasks SET status='completed', style_rank=? WHERE id=?", (rank, task_id))
-                c.execute("UPDATE blood_state SET current_blood = MIN(max_blood, current_blood + ?) WHERE id=1", (reward,))
-                conn.commit()
-                conn.close()
-                self._send_json(200, {"success": True, "style_rank": rank, "blood_added": reward})
-                
-            elif self.path == '/api/task/fail':
-                body = self._get_body()
-                task_id = body.get('task_id')
-                seed = random.random()
-                conn = sqlite3.connect(DB_FILE)
-                c = conn.cursor()
-                if task_id:
-                    c.execute("UPDATE tasks SET status='failed', style_rank='D' WHERE id=?", (task_id,))
-                c.execute("UPDATE cyber_grind_state SET active=1, shuffle_seed=?, activated_at=? WHERE id=1", (seed, datetime.datetime.now().isoformat()))
-                conn.commit()
-                conn.close()
-                
-                try:
-                    req = urllib.request.Request("http://127.0.0.1:9090/punish", method='POST')
-                    urllib.request.urlopen(req, timeout=1)
-                except Exception:
-                    pass
+        path = self.path.split("?")[0]
 
-                self._send_json(200, {"success": True, "cyber_grind": True, "shuffle_seed": seed})
-
-            elif self.path == '/api/task/create':
-                body = self._get_body()
-                import uuid
-                task_id = str(uuid.uuid4())
-                conn = sqlite3.connect(DB_FILE)
+        if path == "/api/task/create":
+            try:
+                body = self._read_body()
+                task_id = generate_id()
+                layer_id = body.get("layer_id", "limbo")
+                title = body.get("title", "Unnamed Task")
+                blood_reward = int(body.get("blood_reward", 10))
+                deadline = int(body.get("deadline_seconds", 300))
+                conn = get_db()
                 c = conn.cursor()
-                c.execute("INSERT INTO tasks (id, layer_id, title, blood_reward, deadline_seconds, status, style_rank, dom_order) VALUES (?, ?, ?, ?, ?, 'pending', NULL, 0)",
-                          (task_id, body.get('layer_id'), body.get('title'), body.get('blood_reward'), body.get('deadline_seconds')))
+                c.execute(
+                    "INSERT INTO tasks (id, layer_id, title, blood_reward, deadline_seconds, status, style_rank, dom_order, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (task_id, layer_id, title, blood_reward, deadline, "pending", None, 0, datetime.datetime.now().isoformat()),
+                )
                 conn.commit()
                 conn.close()
                 self._send_json(200, {"success": True, "task_id": task_id})
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
 
-            elif self.path == '/api/grind/clear':
-                conn = sqlite3.connect(DB_FILE)
+        elif path == "/api/task/complete":
+            try:
+                body = self._read_body()
+                task_id = body.get("task_id")
+                completion_time_ms = int(body.get("completion_time_ms", 0))
+                conn = get_db()
+                c = conn.cursor()
+                c.execute("SELECT blood_reward, deadline_seconds FROM tasks WHERE id=?", (task_id,))
+                row = c.fetchone()
+                if not row:
+                    conn.close()
+                    self._send_json(404, {"error": "Task not found"})
+                    return
+                rank = calculate_style_rank(completion_time_ms, row["deadline_seconds"])
+                multiplier = RANK_MULTIPLIERS.get(rank, 1.0)
+                reward = int(row["blood_reward"] * multiplier)
+                c.execute("UPDATE tasks SET status='completed', style_rank=? WHERE id=?", (rank, task_id))
+                c.execute("UPDATE blood_state SET current_blood = MIN(max_blood, current_blood + ?), last_updated=? WHERE id=1",
+                          (reward, datetime.datetime.now().isoformat()))
+                c.execute("SELECT current_blood, max_blood FROM blood_state WHERE id=1")
+                blood = c.fetchone()
+                conn.commit()
+                conn.close()
+                self._send_json(200, {
+                    "success": True,
+                    "style_rank": rank,
+                    "blood_added": reward,
+                    "blood": {"current": blood["current_blood"], "max": blood["max_blood"]},
+                })
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
+
+        elif path == "/api/task/fail":
+            try:
+                body = self._read_body()
+                task_id = body.get("task_id")
+                seed = random.random()
+                conn = get_db()
+                c = conn.cursor()
+                if task_id:
+                    c.execute("UPDATE tasks SET status='failed', style_rank='D' WHERE id=?", (task_id,))
+                c.execute("UPDATE cyber_grind_state SET active=1, shuffle_seed=?, activated_at=? WHERE id=1",
+                          (seed, datetime.datetime.now().isoformat()))
+                conn.commit()
+                conn.close()
+                self._send_json(200, {"success": True, "cyber_grind": True, "shuffle_seed": seed})
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
+
+        elif path == "/api/grind/clear":
+            try:
+                conn = get_db()
                 c = conn.cursor()
                 c.execute("UPDATE cyber_grind_state SET active=0 WHERE id=1")
                 conn.commit()
                 conn.close()
-                self._send_json(200, {"success": True})
-            else:
-                self.send_response(404)
-                self.end_headers()
-        except Exception as e:
-            self._send_json(500, {"error": str(e)})
+                self._send_json(200, {"success": True, "cyber_grind": False})
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
+
+        elif path == "/api/blood/update":
+            try:
+                body = self._read_body()
+                current = int(body.get("current", 0))
+                conn = get_db()
+                c = conn.cursor()
+                c.execute("UPDATE blood_state SET current_blood=?, last_updated=? WHERE id=1",
+                          (max(0, current), datetime.datetime.now().isoformat()))
+                conn.commit()
+                conn.close()
+                self._send_json(200, {"success": True, "current": max(0, current)})
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
+
+        elif path == "/api/layer/select":
+            try:
+                body = self._read_body()
+                layer_id = body.get("layer_id")
+                conn = get_db()
+                c = conn.cursor()
+                c.execute("SELECT unlocked FROM layers WHERE id=?", (layer_id,))
+                row = c.fetchone()
+                if not row:
+                    conn.close()
+                    self._send_json(404, {"error": "Layer not found"})
+                    return
+                conn.close()
+                self._send_json(200, {"success": True, "layer_id": layer_id, "unlocked": bool(row["unlocked"])})
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
+
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        pass  # suppress default access logs
+
 
 if __name__ == "__main__":
     init_db()
     PORT = 8000
-    with socketserver.TCPServer(("", PORT), ReqHandler) as httpd:
-        print(f"ULTRAKILL ENGINE running at http://localhost:{PORT}")
-        httpd.serve_forever()
+    server = http.server.HTTPServer(("", PORT), UltrakillHandler)
+    print(f"ULTRAKILL ENGINE :: http://localhost:{PORT}")
+    print(f"DB: {DB_FILE}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nShutdown.")
+        server.server_close()

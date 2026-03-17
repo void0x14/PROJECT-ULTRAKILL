@@ -2,38 +2,114 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ULTRAKILL Task Engine</title>
     <link rel="stylesheet" href="/frontend/style.css">
 </head>
 <body>
+    <!-- Vignette overlay (low blood warning) -->
     <div class="vignette" id="vignette"></div>
-    
-    <layer-map></layer-map>
-    
-    <div style="display: flex; flex-direction: column; gap: 20px;">
-        <blood-bar></blood-bar>
-        <task-arena layer="limbo"></task-arena>
+
+    <!-- LEFT PANEL: Layer Map -->
+    <div class="panel-left">
+        <layer-map></layer-map>
     </div>
-    
-    <style-meter></style-meter>
+
+    <!-- CENTER PANEL: Blood Bar + Task Arena -->
+    <div class="panel-center">
+        <div class="header-bar">
+            <h1>ULTRAKILL</h1>
+            <button class="btn" id="btn-new-task">+ NEW TASK</button>
+        </div>
+        <blood-bar></blood-bar>
+        <div class="grind-banner" id="grind-banner">⚠ CYBER GRIND ACTIVE — COMPLETE A TASK TO ESCAPE ⚠</div>
+        <task-arena></task-arena>
+    </div>
+
+    <!-- RIGHT PANEL: Style Meter -->
+    <div class="panel-right">
+        <style-meter></style-meter>
+    </div>
+
+    <!-- Task Creation Modal -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal">
+            <h2>New Mission</h2>
+            <label for="task-title">Mission Name</label>
+            <input type="text" id="task-title" placeholder="Destroy the target...">
+            <label for="task-blood">Blood Reward</label>
+            <input type="number" id="task-blood" value="15" min="1" max="100">
+            <label for="task-deadline">Deadline (seconds)</label>
+            <input type="number" id="task-deadline" value="300" min="10" max="86400">
+            <div class="modal-actions">
+                <button class="btn btn-danger" id="btn-cancel">CANCEL</button>
+                <button class="btn" id="btn-submit">DEPLOY</button>
+            </div>
+        </div>
+    </div>
 
     <script type="module">
-        import './components/blood-bar.js';
-        import './components/layer-map.js';
-        import './components/task-arena.js';
-        import './components/style-meter.js';
-        import { startEngine } from './engine.js';
-        import { state, subscribe } from './state.js';
-        
-        startEngine();
-        
-        subscribe('blood', blood => {
-            const vignette = document.getElementById('vignette');
-            if(blood.current < blood.max * 0.1) {
-                vignette.classList.add('active');
-            } else {
-                vignette.classList.remove('active');
+        import "/frontend/components/blood-bar.js";
+        import "/frontend/components/layer-map.js";
+        import "/frontend/components/task-arena.js";
+        import "/frontend/components/style-meter.js";
+        import { startEngine, createTask } from "/frontend/engine.js";
+        import { state, subscribe } from "/frontend/state.js";
+
+        // Start engine
+        await startEngine();
+
+        // Vignette effect based on blood level
+        const vignette = document.getElementById("vignette");
+        function updateVignette(blood) {
+            const pct = blood.current / blood.max;
+            vignette.classList.remove("warn", "critical");
+            if (pct <= 0.1) {
+                vignette.classList.add("critical");
+            } else if (pct <= 0.3) {
+                vignette.classList.add("warn");
             }
+        }
+        subscribe("blood", updateVignette);
+        updateVignette(state.blood);
+
+        // Modal logic
+        const overlay = document.getElementById("modal-overlay");
+        const btnNew = document.getElementById("btn-new-task");
+        const btnCancel = document.getElementById("btn-cancel");
+        const btnSubmit = document.getElementById("btn-submit");
+        const inputTitle = document.getElementById("task-title");
+        const inputBlood = document.getElementById("task-blood");
+        const inputDeadline = document.getElementById("task-deadline");
+
+        btnNew.addEventListener("click", () => {
+            overlay.classList.add("active");
+            inputTitle.value = "";
+            inputBlood.value = "15";
+            inputDeadline.value = "300";
+            inputTitle.focus();
+        });
+
+        btnCancel.addEventListener("click", () => {
+            overlay.classList.remove("active");
+        });
+
+        overlay.addEventListener("click", (e) => {
+            if (e.target === overlay) overlay.classList.remove("active");
+        });
+
+        btnSubmit.addEventListener("click", async () => {
+            const title = inputTitle.value.trim();
+            if (!title) {
+                inputTitle.style.borderColor = "#ff0000";
+                return;
+            }
+            inputTitle.style.borderColor = "";
+            const blood = parseInt(inputBlood.value) || 15;
+            const deadline = parseInt(inputDeadline.value) || 300;
+            const layer = state.activeLayer;
+            await createTask(layer, title, blood, deadline);
+            overlay.classList.remove("active");
         });
     </script>
 </body>

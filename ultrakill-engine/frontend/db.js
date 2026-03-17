@@ -1,94 +1,142 @@
 // === DOSYA: frontend/db.js ===
-const DB_NAME = 'UltrakillDB';
+const DB_NAME = "UltrakillDB";
 const DB_VERSION = 1;
 
+let _db = null;
+
 export async function initDB() {
+    if (_db) return _db;
     return new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
-        request.onupgradeneeded = (e) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = (e) => {
             const db = e.target.result;
-            if (!db.objectStoreNames.contains('tasks')) {
-                db.createObjectStore('tasks', { keyPath: 'id' });
+            if (!db.objectStoreNames.contains("tasks")) {
+                db.createObjectStore("tasks", { keyPath: "id" });
             }
-            if (!db.objectStoreNames.contains('layers')) {
-                db.createObjectStore('layers', { keyPath: 'id' });
+            if (!db.objectStoreNames.contains("layers")) {
+                db.createObjectStore("layers", { keyPath: "id" });
             }
-            if (!db.objectStoreNames.contains('grind_state')) {
-                db.createObjectStore('grind_state', { keyPath: 'id' });
+            if (!db.objectStoreNames.contains("grind_state")) {
+                db.createObjectStore("grind_state", { keyPath: "id" });
             }
-            if (!db.objectStoreNames.contains('session_log')) {
-                db.createObjectStore('session_log', { keyPath: 'id', autoIncrement: true });
+            if (!db.objectStoreNames.contains("session_log")) {
+                db.createObjectStore("session_log", { keyPath: "id", autoIncrement: true });
             }
         };
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
+        req.onsuccess = () => {
+            _db = req.result;
+            resolve(_db);
+        };
+        req.onerror = () => reject(req.error);
     });
 }
 
-export async function getTasks(layer_id) {
+export async function getTasks(layerId) {
     try {
         const db = await initDB();
         return new Promise((resolve, reject) => {
-            const transaction = db.transaction('tasks', 'readonly');
-            const store = transaction.objectStore('tasks');
-            const request = store.getAll();
-            request.onsuccess = () => {
-                const tasks = request.result;
-                resolve(layer_id ? tasks.filter(t => t.layer_id === layer_id) : tasks);
+            const tx = db.transaction("tasks", "readonly");
+            const store = tx.objectStore("tasks");
+            const r = store.getAll();
+            r.onsuccess = () => {
+                const all = r.result || [];
+                resolve(layerId ? all.filter((t) => t.layer_id === layerId) : all);
             };
-            request.onerror = () => reject(request.error);
+            r.onerror = () => reject(r.error);
         });
-    } catch (e) { console.error(e); return []; }
+    } catch (e) {
+        console.error("[db] getTasks:", e);
+        return [];
+    }
 }
 
 export async function saveTask(task) {
     try {
         const db = await initDB();
         return new Promise((resolve, reject) => {
-            const transaction = db.transaction('tasks', 'readwrite');
-            const store = transaction.objectStore('tasks');
-            const request = store.put(task);
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
+            const tx = db.transaction("tasks", "readwrite");
+            const store = tx.objectStore("tasks");
+            const r = store.put(task);
+            r.onsuccess = () => resolve();
+            r.onerror = () => reject(r.error);
         });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error("[db] saveTask:", e);
+    }
+}
+
+export async function saveTasks(tasks) {
+    try {
+        const db = await initDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("tasks", "readwrite");
+            const store = tx.objectStore("tasks");
+            for (const task of tasks) {
+                store.put(task);
+            }
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+    } catch (e) {
+        console.error("[db] saveTasks:", e);
+    }
 }
 
 export async function getGrindState() {
     try {
         const db = await initDB();
         return new Promise((resolve, reject) => {
-            const transaction = db.transaction('grind_state', 'readonly');
-            const store = transaction.objectStore('grind_state');
-            const request = store.get('current');
-            request.onsuccess = () => resolve(request.result || { active: false, seed: null });
-            request.onerror = () => reject(request.error);
+            const tx = db.transaction("grind_state", "readonly");
+            const store = tx.objectStore("grind_state");
+            const r = store.get("current");
+            r.onsuccess = () => resolve(r.result || { active: false, seed: null });
+            r.onerror = () => reject(r.error);
         });
-    } catch (e) { console.error(e); return { active: false, seed: null }; }
+    } catch (e) {
+        console.error("[db] getGrindState:", e);
+        return { active: false, seed: null };
+    }
 }
 
-export async function saveGrindState(state) {
+export async function saveGrindState(gs) {
     try {
         const db = await initDB();
         return new Promise((resolve, reject) => {
-            const transaction = db.transaction('grind_state', 'readwrite');
-            const store = transaction.objectStore('grind_state');
-            const request = store.put({ id: 'current', ...state });
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
+            const tx = db.transaction("grind_state", "readwrite");
+            const store = tx.objectStore("grind_state");
+            const r = store.put({ id: "current", ...gs });
+            r.onsuccess = () => resolve();
+            r.onerror = () => reject(r.error);
         });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error("[db] saveGrindState:", e);
+    }
 }
 
 export async function logSession(entry) {
     try {
         const db = await initDB();
         return new Promise((resolve, reject) => {
-            const transaction = db.transaction('session_log', 'readwrite');
-            const store = transaction.objectStore('session_log');
-            const request = store.add(entry);
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
+            const tx = db.transaction("session_log", "readwrite");
+            const store = tx.objectStore("session_log");
+            const r = store.add(entry);
+            r.onsuccess = () => resolve();
+            r.onerror = () => reject(r.error);
         });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error("[db] logSession:", e);
+    }
+}
+
+export async function syncFromServer() {
+    try {
+        const res = await fetch("/api/state");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.tasks) await saveTasks(data.tasks);
+        return data;
+    } catch (e) {
+        console.error("[db] syncFromServer:", e);
+        return null;
+    }
 }
