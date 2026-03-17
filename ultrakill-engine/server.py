@@ -40,6 +40,17 @@ def generate_id():
     return f"{random.randint(0, 2**64):016x}"
 
 
+def _migrate_db(conn):
+    """Run schema migrations on existing databases."""
+    c = conn.cursor()
+    # Migration: add started_at column to tasks if missing
+    c.execute("PRAGMA table_info(tasks)")
+    columns = {row["name"] for row in c.fetchall()}
+    if "started_at" not in columns:
+        c.execute("ALTER TABLE tasks ADD COLUMN started_at REAL")
+    conn.commit()
+
+
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
@@ -77,6 +88,9 @@ def init_db():
         shuffle_seed REAL NOT NULL DEFAULT 0.0,
         activated_at TEXT
     )""")
+
+    # Run migrations for existing databases
+    _migrate_db(conn)
 
     c.execute("SELECT COUNT(*) FROM layers")
     if c.fetchone()[0] == 0:
@@ -270,19 +284,23 @@ class UltrakillHandler(http.server.BaseHTTPRequestHandler):
                 task_id = body.get("task_id")
                 conn = get_db()
                 c = conn.cursor()
-                c.execute("SELECT layer_id, blood_reward, deadline_seconds, started_at FROM tasks WHERE id=?", (task_id,))
+                c.execute("SELECT layer_id, blood_reward, deadline_seconds, started_at, status FROM tasks WHERE id=?", (task_id,))
                 row = c.fetchone()
                 if not row:
                     conn.close()
                     self._send_json(404, {"error": "Task not found"})
                     return
-                # Server-calculated completion time to prevent spoofing
+
+                # Bug fix: reject completion if task was never started
                 started_at = row["started_at"]
-                if started_at:
-                    elapsed_seconds = datetime.datetime.now().timestamp() - float(started_at)
-                    completion_time_ms = int(elapsed_seconds * 1000)
-                else:
-                    completion_time_ms = 0
+                if not started_at or row["status"] != "in_progress":
+                    conn.close()
+                    self._send_json(400, {"error": "Task must be started before completion"})
+                    return
+
+                # Server-calculated completion time to prevent spoofing
+                elapsed_seconds = datetime.datetime.now().timestamp() - float(started_at)
+                completion_time_ms = int(elapsed_seconds * 1000)
 
                 rank = calculate_style_rank(completion_time_ms, row["deadline_seconds"])
                 multiplier = RANK_MULTIPLIERS.get(rank, 1.0)
@@ -293,14 +311,17 @@ class UltrakillHandler(http.server.BaseHTTPRequestHandler):
                 c.execute("UPDATE blood_state SET current_blood = MIN(max_blood, current_blood + ?), last_updated=? WHERE id=1",
                           (reward, datetime.datetime.now().isoformat()))
                 
-                # Unlock progression: mark current layer completed and unlock next layer
+                # Bug fix: only mark layer completed when ALL its tasks are done
                 layer_id = row["layer_id"]
-                c.execute("UPDATE layers SET completed=1 WHERE id=?", (layer_id,))
-                c.execute("SELECT order_idx FROM layers WHERE id=?", (layer_id,))
-                layer_idx_row = c.fetchone()
-                if layer_idx_row:
-                    curr_order = layer_idx_row["order_idx"]
-                    c.execute("UPDATE layers SET unlocked=1 WHERE order_idx=?", (curr_order + 1,))
+                c.execute("SELECT COUNT(*) as remaining FROM tasks WHERE layer_id=? AND status != 'completed'", (layer_id,))
+                remaining = c.fetchone()["remaining"]
+                if remaining == 0:
+                    c.execute("UPDATE layers SET completed=1 WHERE id=?", (layer_id,))
+                    c.execute("SELECT order_idx FROM layers WHERE id=?", (layer_id,))
+                    layer_idx_row = c.fetchone()
+                    if layer_idx_row:
+                        curr_order = layer_idx_row["order_idx"]
+                        c.execute("UPDATE layers SET unlocked=1 WHERE order_idx=?", (curr_order + 1,))
                 
                 c.execute("SELECT current_blood, max_blood FROM blood_state WHERE id=1")
                 blood = c.fetchone()

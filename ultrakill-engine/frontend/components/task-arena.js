@@ -174,9 +174,25 @@ class TaskArena extends HTMLElement {
 
     async _handleClick(task) {
         if (!this._activeTimers.has(task.id) && task.status !== "in_progress") {
-            // Start task
+            // Start task — only proceed if server confirms
             const serverStartTimestamp = await startTask(task.id);
-            const startMs = serverStartTimestamp ? (serverStartTimestamp * 1000) : Date.now();
+            if (serverStartTimestamp == null) {
+                // API failed — do NOT activate locally to prevent state desync
+                const card = this.shadowRoot.querySelector(`[data-task-card="${task.id}"]`);
+                if (card) {
+                    const timer = card.querySelector(`[data-timer="${task.id}"]`);
+                    if (timer) {
+                        timer.textContent = "START FAILED — RETRY";
+                        timer.style.color = "#ff0000";
+                        setTimeout(() => {
+                            timer.textContent = "CLICK TO ENGAGE";
+                            timer.style.color = "";
+                        }, 2000);
+                    }
+                }
+                return;
+            }
+            const startMs = serverStartTimestamp * 1000;
             this._activeTimers.set(task.id, startMs);
             const card = this.shadowRoot.querySelector(`[data-task-card="${task.id}"]`);
             if (card) card.classList.add("active");
