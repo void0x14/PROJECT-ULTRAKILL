@@ -1,6 +1,6 @@
 // === DOSYA: frontend/components/task-arena.js ===
 import { state, subscribe } from "../state.js";
-import { completeTask } from "../engine.js";
+import { completeTask, startTask } from "../engine.js";
 
 const ARENA_STYLES = `
 <style>
@@ -146,7 +146,10 @@ class TaskArena extends HTMLElement {
             card.setAttribute("data-task-card", task.id);
             card.dataset.taskId = task.id;
 
-            const isActive = this._activeTimers.has(task.id);
+            const isActive = task.status === "in_progress" || this._activeTimers.has(task.id);
+            if (task.status === "in_progress" && !this._activeTimers.has(task.id)) {
+                this._activeTimers.set(task.id, task.started_at * 1000);
+            }
 
             card.innerHTML = `
                 <div class="card-title">${this._esc(task.title)}</div>
@@ -170,19 +173,19 @@ class TaskArena extends HTMLElement {
     }
 
     async _handleClick(task) {
-        if (!this._activeTimers.has(task.id)) {
+        if (!this._activeTimers.has(task.id) && task.status !== "in_progress") {
             // Start task
-            this._activeTimers.set(task.id, Date.now());
-            const card = this.shadowRoot.querySelector(`[data-task-id="${task.id}"]`);
+            const serverStartTimestamp = await startTask(task.id);
+            const startMs = serverStartTimestamp ? (serverStartTimestamp * 1000) : Date.now();
+            this._activeTimers.set(task.id, startMs);
+            const card = this.shadowRoot.querySelector(`[data-task-card="${task.id}"]`);
             if (card) card.classList.add("active");
             this._startTimerDisplay(task.id);
         } else {
             // Complete task
-            const startTime = this._activeTimers.get(task.id);
-            const elapsed = Date.now() - startTime;
             this._activeTimers.delete(task.id);
             this._stopTimerDisplay(task.id);
-            await completeTask(task.id, elapsed);
+            await completeTask(task.id);
         }
     }
 

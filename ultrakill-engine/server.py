@@ -62,6 +62,7 @@ def init_db():
         style_rank TEXT,
         dom_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT,
+        started_at REAL,
         FOREIGN KEY (layer_id) REFERENCES layers(id)
     )""")
     c.execute("""CREATE TABLE IF NOT EXISTS blood_state(
@@ -197,7 +198,7 @@ class UltrakillHandler(http.server.BaseHTTPRequestHandler):
                 for l in layers:
                     l["unlocked"] = bool(l["unlocked"])
                     l["completed"] = bool(l["completed"])
-                c.execute("SELECT id, layer_id, title, blood_reward, deadline_seconds, status, style_rank, dom_order FROM tasks")
+                c.execute("SELECT id, layer_id, title, blood_reward, deadline_seconds, status, style_rank, dom_order, started_at FROM tasks")
                 tasks = [dict(r) for r in c.fetchall()]
                 c.execute("SELECT active, shuffle_seed FROM cyber_grind_state WHERE id=1")
                 g = c.fetchone()
@@ -249,25 +250,58 @@ class UltrakillHandler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
 
+        elif path == "/api/task/start":
+            try:
+                body = self._read_body()
+                task_id = body.get("task_id")
+                start_time = datetime.datetime.now().timestamp()
+                conn = get_db()
+                c = conn.cursor()
+                c.execute("UPDATE tasks SET status='in_progress', started_at=? WHERE id=?", (start_time, task_id))
+                conn.commit()
+                conn.close()
+                self._send_json(200, {"success": True, "started_at": start_time})
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
+
         elif path == "/api/task/complete":
             try:
                 body = self._read_body()
                 task_id = body.get("task_id")
-                completion_time_ms = int(body.get("completion_time_ms", 0))
                 conn = get_db()
                 c = conn.cursor()
-                c.execute("SELECT blood_reward, deadline_seconds FROM tasks WHERE id=?", (task_id,))
+                c.execute("SELECT layer_id, blood_reward, deadline_seconds, started_at FROM tasks WHERE id=?", (task_id,))
                 row = c.fetchone()
                 if not row:
                     conn.close()
                     self._send_json(404, {"error": "Task not found"})
                     return
+                # Server-calculated completion time to prevent spoofing
+                started_at = row["started_at"]
+                if started_at:
+                    elapsed_seconds = datetime.datetime.now().timestamp() - float(started_at)
+                    completion_time_ms = int(elapsed_seconds * 1000)
+                else:
+                    completion_time_ms = 0
+
                 rank = calculate_style_rank(completion_time_ms, row["deadline_seconds"])
                 multiplier = RANK_MULTIPLIERS.get(rank, 1.0)
                 reward = int(row["blood_reward"] * multiplier)
+                
+                # Update task status and blood
                 c.execute("UPDATE tasks SET status='completed', style_rank=? WHERE id=?", (rank, task_id))
                 c.execute("UPDATE blood_state SET current_blood = MIN(max_blood, current_blood + ?), last_updated=? WHERE id=1",
                           (reward, datetime.datetime.now().isoformat()))
+                
+                # Unlock progression: mark current layer completed and unlock next layer
+                layer_id = row["layer_id"]
+                c.execute("UPDATE layers SET completed=1 WHERE id=?", (layer_id,))
+                c.execute("SELECT order_idx FROM layers WHERE id=?", (layer_id,))
+                layer_idx_row = c.fetchone()
+                if layer_idx_row:
+                    curr_order = layer_idx_row["order_idx"]
+                    c.execute("UPDATE layers SET unlocked=1 WHERE order_idx=?", (curr_order + 1,))
+                
                 c.execute("SELECT current_blood, max_blood FROM blood_state WHERE id=1")
                 blood = c.fetchone()
                 conn.commit()

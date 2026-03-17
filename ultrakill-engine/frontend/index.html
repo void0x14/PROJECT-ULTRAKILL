@@ -19,7 +19,10 @@
     <div class="panel-center">
         <div class="header-bar">
             <h1>ULTRAKILL</h1>
-            <button class="btn" id="btn-new-task">+ NEW TASK</button>
+            <div>
+                <button class="btn" id="btn-manual" style="background:#1a1a1a; border-color:#888; color:#aaa; margin-right: 15px;">? KILAVUZ</button>
+                <button class="btn" id="btn-new-task">+ NEW TASK</button>
+            </div>
         </div>
         <blood-bar></blood-bar>
         <div class="grind-banner" id="grind-banner">⚠ CYBER GRIND ACTIVE — COMPLETE A TASK TO ESCAPE ⚠</div>
@@ -44,6 +47,25 @@
             <div class="modal-actions">
                 <button class="btn btn-danger" id="btn-cancel">CANCEL</button>
                 <button class="btn" id="btn-submit">DEPLOY</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual Modal -->
+    <div class="modal-overlay" id="manual-overlay">
+        <div class="modal" style="max-height: 80vh; overflow-y: auto;">
+            <h2 style="color: #ffd700;">KULLANIM KILAVUZU</h2>
+            <div style="font-family: monospace; font-size: 0.9em; line-height: 1.6; color: #ccc;">
+                <p><b>1. KAN (BLOOD):</b> Zamanınızdır. Her saniye 1 birim azalır. 0'a inerse Cyber Grind başlar.</p>
+                <p><b>2. GÖREVLER (MISSIONS):</b> "+ NEW TASK" ile görev ekleyin. Başlatmak için karta tıklayın. Bitirmek için tekrar tıklayın.</p>
+                <p><b>3. STYLE RANK:</b> Ne kadar hızlı bitirirseniz rank (D'den SSS'e) o kadar artar. Yüksek rank daha fazla kan (zaman) kazandırır.</p>
+                <p><b>4. KATMANLAR (LAYERS):</b> Sol tarafta katmanlar bulunur. Bir katmanda görev bitirdiğinizde sıradaki katman açılır.</p>
+                <p><b>5. CYBER GRIND (CEZA):</b> Ekran bozulur, arka plandaki ceza sistemi çalışır. Kurtulmak için hemen bir görev tamamlamalısınız.</p>
+                <hr style="border-color: #333; margin: 15px 0;">
+                <p style="color: #888;">* Sistem tamamen yerel çalışır. Arkaplan timer koruması sayesinde sayfayı kapatsanız bile süre takibi devam eder.<br>* KISS (Keep It Simple, Stupid) prensibi ile tasarlanmıştır.</p>
+            </div>
+            <div class="modal-actions">
+                <button class="btn" id="btn-close-manual" style="width: 100%;">ANLADIM</button>
             </div>
         </div>
     </div>
@@ -81,6 +103,22 @@
         const inputTitle = document.getElementById("task-title");
         const inputBlood = document.getElementById("task-blood");
         const inputDeadline = document.getElementById("task-deadline");
+
+        const manualOverlay = document.getElementById("manual-overlay");
+        const btnManual = document.getElementById("btn-manual");
+        const btnCloseManual = document.getElementById("btn-close-manual");
+
+        btnManual.addEventListener("click", () => {
+            manualOverlay.classList.add("active");
+        });
+
+        btnCloseManual.addEventListener("click", () => {
+            manualOverlay.classList.remove("active");
+        });
+
+        manualOverlay.addEventListener("click", (e) => {
+            if (e.target === manualOverlay) manualOverlay.classList.remove("active");
+        });
 
         btnNew.addEventListener("click", () => {
             overlay.classList.add("active");

@@ -58,6 +58,9 @@ export async function triggerCyberGrind(seed) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({}),
         });
+        
+        // Trigger daemon
+        fetch("http://localhost:9090/punish", { method: "POST" }).catch(e => console.log("[daemon] not reachable"));
     } catch (e) {
         console.error("[engine] triggerCyberGrind API:", e);
     }
@@ -117,6 +120,8 @@ export async function clearCyberGrind() {
     clearLayout();
     try {
         await fetch("/api/grind/clear", { method: "POST" });
+        // Release daemon
+        fetch("http://localhost:9090/release", { method: "POST" }).catch(e => console.log("[daemon] not reachable"));
     } catch (e) {
         console.error("[engine] clearCyberGrind API:", e);
     }
@@ -128,6 +133,23 @@ export async function clearCyberGrind() {
 }
 
 // --- Task Operations ---
+export async function startTask(taskId) {
+    try {
+        const res = await fetch("/api/task/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ task_id: taskId }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            await refreshState();
+        }
+        return data.started_at;
+    } catch (e) {
+        console.error("[engine] startTask:", e);
+        return null;
+    }
+}
 export async function createTask(layerId, title, bloodReward, deadlineSeconds) {
     try {
         const res = await fetch("/api/task/create", {
@@ -151,14 +173,13 @@ export async function createTask(layerId, title, bloodReward, deadlineSeconds) {
     }
 }
 
-export async function completeTask(taskId, completionTimeMs) {
+export async function completeTask(taskId) {
     try {
         const res = await fetch("/api/task/complete", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 task_id: taskId,
-                completion_time_ms: completionTimeMs,
             }),
         });
         const data = await res.json();
