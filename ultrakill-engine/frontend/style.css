@@ -1,0 +1,65 @@
+/* === DOSYA: frontend/style.css === */
+:root {
+    --blood: #8a0303;
+    --void: #0a0a0a;
+    --metal: #1a1a1a;
+    --rust: #2d1a1a;
+    --terminal: #00ff41;
+    --text: #c8c8c8;
+    --rank-sss: #ff4500;
+}
+
+body {
+    background-color: var(--void);
+    color: var(--text);
+    font-family: 'Courier New', Courier, monospace;
+    margin: 0;
+    padding: 20px;
+    display: grid;
+    grid-template-columns: 200px 1fr 200px;
+    gap: 20px;
+    height: 100vh;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.scrambling {
+    animation: scrambleShake 0.1s infinite, glitch 0.3s infinite;
+    border-color: var(--terminal) !important;
+}
+
+@keyframes glitch {
+    0% { clip-path: inset(10% 0 10% 0); transform: translateX(-2px); }
+    20% { clip-path: inset(80% 0 5% 0); transform: translateX(2px); }
+    40% { clip-path: inset(40% 0 40% 0); transform: translateX(-2px); }
+    60% { clip-path: inset(20% 0 60% 0); transform: translateX(2px); }
+    80% { clip-path: inset(60% 0 20% 0); transform: translateX(-2px); }
+    100% { clip-path: inset(10% 0 10% 0); transform: translateX(0); }
+}
+
+@keyframes bloodPulse {
+    0% { filter: brightness(1); }
+    50% { filter: brightness(0.5); }
+    100% { filter: brightness(1); }
+}
+
+@keyframes scrambleShake {
+    0% { transform: translate(1px, 1px) rotate(0deg); }
+    25% { transform: translate(-1px, -2px) rotate(-1deg); }
+    50% { transform: translate(-3px, 0px) rotate(1deg); }
+    75% { transform: translate(2px, 2px) rotate(0deg); }
+    100% { transform: translate(1px, -1px) rotate(0deg); }
+}
+
+.vignette {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    box-shadow: inset 0 0 150px var(--blood);
+    pointer-events: none;
+    z-index: 9999;
+    display: none;
+}
+.vignette.active {
+    display: block;
+    animation: bloodPulse 1s infinite;
+}

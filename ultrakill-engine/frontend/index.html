@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ULTRAKILL Task Engine</title>
+    <link rel="stylesheet" href="/frontend/style.css">
+</head>
+<body>
+    <div class="vignette" id="vignette"></div>
+    
+    <layer-map></layer-map>
+    
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+        <blood-bar></blood-bar>
+        <task-arena layer="limbo"></task-arena>
+    </div>
+    
+    <style-meter></style-meter>
+
+    <script type="module">
+        import './components/blood-bar.js';
+        import './components/layer-map.js';
+        import './components/task-arena.js';
+        import './components/style-meter.js';
+        import { startEngine } from './engine.js';
+        import { state, subscribe } from './state.js';
+        
+        startEngine();
+        
+        subscribe('blood', blood => {
+            const vignette = document.getElementById('vignette');
+            if(blood.current < blood.max * 0.1) {
+                vignette.classList.add('active');
+            } else {
+                vignette.classList.remove('active');
+            }
+        });
+    </script>
+</body>
+</html>
