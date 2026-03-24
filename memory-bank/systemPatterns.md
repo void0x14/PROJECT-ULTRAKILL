@@ -81,3 +81,24 @@ index.html
 2. **Completion Flow**: click → POST /api/task/start (set started_at) → click → POST /api/task/complete → calculate rank → update blood → sync
 3. **Cyber Grind Flow**: blood=0 → triggerCyberGrind() → POST /api/task/fail → daemon POST /punish → scrambleLayout(seed)
 4. **Recovery Flow**: complete task during grind → POST /api/grind/clear → daemon POST /release → unscramble
+
+## SQLite Durability (CRITICAL!)
+
+Veri kaybı/corruption OLMAYACAK. Bu yüzden SQLite PRAGMA ayarları şart!
+
+```python
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    
+    # KRITIK: Veri güvenliği için bu ayarlar şart!
+    conn.execute("PRAGMA journal_mode=WAL;")      # Write-ahead logging
+    conn.execute("PRAGMA synchronous=FULL;")    # OS crash koruması
+    conn.execute("PRAGMA busy_timeout=5000;")   # Lock bekleme süresi
+    conn.execute("PRAGMA foreign_keys=ON;")     # Veri bütünlüğü
+```
+
+### Neden Önemli?
+- OS crash → fsync yoksa veri kaybı
+- Power failure → Incomplete write koruması
+- Acil kapanma → Transaction rollback

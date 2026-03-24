@@ -24,3 +24,35 @@ Traditional task managers are boring. ULTRAKILL Task Engine gamifies productivit
 - **Satisfying Progression**: Layer map shows journey through Hell
 - **Chaotic Punishment**: Cyber Grind should feel genuinely disorienting
 - **Zero Friction**: No login, no setup, just run server.py and open browser
+
+---
+
+## Kullanıcı Profili
+
+### Donanım
+| Cihaz | Özellik | Önemi |
+|-------|---------|--------|
+| **Telefon** | Redmi 9, 64GB depolama | Binary boyutu KRİTİK |
+| **Desktop** | Ryzen 5 3600, 16GB RAM | Build hızı yeterli |
+
+### Kullanım Modeli
+- **LLM Workflow**: LLM'ler kod yazıyor, kullanıcı sadece review/architecture yapıyor
+- **Kişisel kullanım**: Dağıtım yok, sadece kendisi kullanacak
+- **Hedef**: Core features önce mükemmel çalışsın, sonra yavaş incremental improvement
+
+### Öncelik Sırası
+1. ✅ **VERİ GÜVENLİĞİ**: Asla corruption/kayıp olmayacak (SQLite PRAGMA settings kritik)
+2. ✅ **CORE FEATURES**: Kan timer, task CRUD, style ranking, layer system çalışacak
+3. ✅ **SIFIR DEPENDENCY**: Hiç external paket yok
+4. ❌ **Güvenlik**: Önemli değil (kişisel kullanım)
+5. ❌ **v0.2.0**: Büyük versiyon atlamaları yok, sürekli incremental
+
+### Versiyonlama
+- Format: `0.{feature}.{iteration}.{hotfix}`
+- Örnek: `0.100.1234` tarzı
+- Amaç: Uzun süre 0.x.x.x serisinde kalmak
+
+### İlgi Diller (Gelecek İçin)
+1. 🟠 **Nim** — 6KB binary, Python benzeri syntax
+2. 🐹 **Go** — Tek binary, mature ecosystem
+3. 🔷 **V** — 0.4sn compile, çok küçük binary
